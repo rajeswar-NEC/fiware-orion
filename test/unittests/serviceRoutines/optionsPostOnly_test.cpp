@@ -38,8 +38,8 @@
 */
 static RestService optionsV[] =
 {
-  { BatchQueryRequest,  3, { "v2", "op", "query" }, "", optionsPostOnly },
-  { InvalidRequest,     0, {                     }, "", NULL            }
+  { BatchQueryRequest,  3, { "v2", "op", "query" }, optionsPostOnly },
+  { InvalidRequest,     0, {                     }, NULL            }
 };
 
 
@@ -55,7 +55,7 @@ TEST(versionTreat, ok)
 
   serviceVectorsSet(NULL, NULL, NULL, NULL, NULL, optionsV, NULL);
   out = orionServe(&ci);
-  
+
   EXPECT_TRUE(strstr(out.c_str(), "Access-Control-Allow-Origin")  != NULL);
   EXPECT_TRUE(strstr(out.c_str(), "Access-Control-Max-Age")       != NULL);
   EXPECT_TRUE(strstr(out.c_str(), "Access-Control-Allow-Headers") != NULL);

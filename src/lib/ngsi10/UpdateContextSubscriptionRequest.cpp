@@ -76,22 +76,7 @@ std::string UpdateContextSubscriptionRequest::check(const std::string& predetect
   else
     return "OK";
 
-  return response.render();
-}
-
-
-
-/* ****************************************************************************
-*
-* UpdateContextSubscriptionRequest::present - 
-*/
-void UpdateContextSubscriptionRequest::present(const std::string& indent)
-{
-  duration.present(indent);
-  restriction.present(indent);
-  subscriptionId.present(indent);
-  notifyConditionVector.present(indent);
-  throttling.present(indent);
+  return response.toJsonV1();
 }
 
 

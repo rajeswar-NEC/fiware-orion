@@ -80,29 +80,9 @@ std::string Originator::get(void)
 
 /* ****************************************************************************
 *
-* Originator::present -
+* Originator::toJsonV1 -
 */
-void Originator::present(const std::string& indent)
-{
-  if (string != "")
-  {
-    LM_T(LmtPresent, ("%sOriginator: %s\n", 
-		      indent.c_str(), 
-		      string.c_str()));
-  }
-  else
-  {
-    LM_T(LmtPresent, ("%sNo Originator", indent.c_str()));
-  }
-}
-
-
-
-/* ****************************************************************************
-*
-* Originator::render -
-*/
-std::string Originator::render(bool comma)
+std::string Originator::toJsonV1(bool comma)
 {
   if (string == "")
   {

@@ -80,29 +80,9 @@ std::string RestrictionString::get(void)
 
 /* ****************************************************************************
 *
-* RestrictionString::present -
+* RestrictionString::toJsonV1 -
 */
-void RestrictionString::present(const std::string& indent)
-{
-  if (string != "")
-  {
-    LM_T(LmtPresent, ("%sRestrictionString: %s", 
-		      indent.c_str(), 
-		      string.c_str()));
-  }
-  else
-  {
-    LM_T(LmtPresent, ("%sNo RestrictionString", indent.c_str()));
-  }
-}
-
-
-
-/* ****************************************************************************
-*
-* RestrictionString::render -
-*/
-std::string RestrictionString::render(bool comma)
+std::string RestrictionString::toJsonV1(bool comma)
 {
   if (string == "")
   {

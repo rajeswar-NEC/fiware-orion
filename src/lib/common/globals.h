@@ -26,6 +26,7 @@
 * Author: Ken Zangelin
 */
 #include <stdint.h>
+#include <limits.h>
 #include <string>
 
 #include "common/Timer.h"
@@ -70,14 +71,6 @@
 
 /* ****************************************************************************
 *
-* metadata ID separator
-*/
-#define MD_ID_SEPARATOR "()"
-
-
-
-/* ****************************************************************************
-*
 * Default Types for entities, attributes and metadata
 */
 #define DEFAULT_ENTITY_TYPE       "Thing"
@@ -95,11 +88,12 @@
 
 /* ****************************************************************************
 *
-* virtual attributes
+* NGSIv2 builtin attributes
 */
-#define DATE_CREATED   "dateCreated"
-#define DATE_MODIFIED  "dateModified"
-#define ALL_ATTRS      "*"
+#define DATE_CREATED    "dateCreated"
+#define DATE_MODIFIED   "dateModified"
+#define DATE_EXPIRES    "dateExpires"
+#define ALL_ATTRS       "*"
 
 
 
@@ -118,15 +112,18 @@
 *
 * Values for the URI param 'options'
 */
-#define OPT_COUNT           "count"
-#define OPT_APPEND          "append"
-#define OPT_NORMALIZED      "normalized"
-#define OPT_VALUES          "values"
-#define OPT_KEY_VALUES      "keyValues"
-#define OPT_UNIQUE_VALUES   "unique"
-#define OPT_DATE_CREATED    DATE_CREATED
-#define OPT_DATE_MODIFIED   DATE_MODIFIED
-#define OPT_NO_ATTR_DETAIL  "noAttrDetail"
+#define OPT_COUNT                       "count"
+#define OPT_APPEND                      "append"
+#define OPT_NORMALIZED                  "normalized"
+#define OPT_VALUES                      "values"
+#define OPT_KEY_VALUES                  "keyValues"
+#define OPT_UNIQUE_VALUES               "unique"
+#define OPT_DATE_CREATED                DATE_CREATED
+#define OPT_DATE_MODIFIED               DATE_MODIFIED
+#define OPT_NO_ATTR_DETAIL              "noAttrDetail"
+#define OPT_UPSERT                      "upsert"
+#define OPT_SKIPINITALNOTIFICATION      "skipInitialNotification"
+#define OPT_FORCEDUPDATE                "forcedUpdate"
 
 
 
@@ -167,12 +164,10 @@ typedef enum ApiVersion
 
 
 /* ****************************************************************************
-* Future date to represent permanent subscriptions.
-* High enough to make the subscription "permanent" but leaving room for
-* some (sloppy) increments, without causing overflow and accidental subscription
-* inactivation.
+*
+* PERMANENT_EXPIRES_DATETIME - date for permanent subscriptions/registrations
 */
-#define PERMANENT_SUBS_DATETIME ((int64_t) 9e18)
+#define PERMANENT_EXPIRES_DATETIME  LLONG_MAX
 
 
 
@@ -224,6 +219,8 @@ extern bool               disableCusNotif;
 
 extern bool               insecureNotif;
 extern bool               ngsiv1Autocast;
+extern unsigned long long inReqPayloadMaxSize;
+extern unsigned long long outReqMsgMaxSize;
 
 
 

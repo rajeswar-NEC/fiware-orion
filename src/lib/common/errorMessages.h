@@ -62,7 +62,7 @@
 #define ERROR_DESC_BAD_REQUEST_INVALID_JTYPE_ENTTYPE  "Invalid JSON type for entity type"
 #define ERROR_DESC_BAD_REQUEST_INVALID_JTYPE_SCOPE    "invalid JSON type for scope value: must be string"
 #define ERROR_DESC_BAD_REQUEST_INVALID_ATTRSFORMAT    "invalid attrsFormat, accepted values: legacy, normalized, keyValues, values"
-#define ERROR_DESC_BAD_REQUEST_INVALID_STATUS         "status is not valid: it has to be either active or inactive"
+#define ERROR_DESC_BAD_REQUEST_INVALID_STATUS         "status is not valid: it has to be either active, inactive or oneshot"
 #define ERROR_DESC_BAD_REQUEST_INVALID_RANGE          "ranges only valid for equal and not equal ops"
 #define ERROR_DESC_BAD_REQUEST_INVALID_LIST           "lists only valid for equal and not equal ops"
 #define ERROR_DESC_BAD_REQUEST_PARTIAL_GEOEXPRESSION  "partial geo expression: geometry, georel and coords have to be provided together"
@@ -75,6 +75,15 @@
 #define ERROR_DESC_BAD_REQUEST_ID_AS_ATTR                     "invalid input, 'id' as attribute"
 #define ERROR_DESC_BAD_REQUEST_ENTID_IN_PAYLOAD               "entity id specified in payload"
 #define ERROR_DESC_BAD_REQUEST_ENTTYPE_IN_PAYLOAD             "entity type specified in payload"
+#define ERROR_DESC_BAD_REQUEST_NOT_A_JSON_OBJECT              "not a JSON object"
+#define ERROR_DESC_BAD_REQUEST_SUBSCRIPTIONID_NOT_STRING      "/subscriptionId/ must be a JSON string"
+#define ERROR_DESC_BAD_REQUEST_DATA_NOT_ARRAY                 "notification field /data/ must be a JSON array"
+#define ERROR_DESC_BAD_REQUEST_DATA_ITEM_NOT_OBJECT           "notification data vector item must be a JSON object"
+#define ERROR_DESC_BAD_REQUEST_NO_SUBSCRIPTION_ID             "invalid JSON payload, mandatory field /subscriptionId/ not found"
+#define ERROR_DESC_BAD_REQUEST_FORMAT_KEYVALUES               "attribute render format /keyValues/ not supported for notifications"
+#define ERROR_DESC_BAD_REQUEST_FORMAT_UNIQUEVALUES            "attribute render format /uniqueValues/ not supported for notifications"
+#define ERROR_DESC_BAD_REQUEST_FORMAT_CUSTOM                  "attribute render format /custom/ not supported for notifications"
+#define ERROR_DESC_BAD_REQUEST_FORMAT_INVALID                 "invalid render format for notifications"
 
 #define ERROR_NOT_FOUND                               "NotFound"
 #define ERROR_DESC_NOT_FOUND_ENTITY                   "The requested entity has not been found. Check type and id"
@@ -82,10 +91,16 @@
 #define ERROR_DESC_NOT_FOUND_CONTEXT_ELEMENT          "No context element found"
 #define ERROR_DESC_NOT_FOUND_ATTRIBUTE                "The entity does not have such an attribute"
 #define ERROR_DESC_NOT_FOUND_SUBSCRIPTION             "The requested subscription has not been found. Check id"
+#define ERROR_DESC_NOT_FOUND_REGISTRATION             "The requested registration has not been found. Check id"
 
 #define ERROR_TOO_MANY                                "TooManyResults"
 #define ERROR_DESC_TOO_MANY_ENTITIES                  "More than one matching entity. Please refine your query"
 
 #define ERROR_DESC_BAD_VERB                           "method not allowed"
+
+
+#define ERROR_NOTIMPLEMENTED                          "NotImplemented"
+#define ERROR_DESC_IDPATTERN_NOTSUPPORTED             "Unsupported idPattern"
+#define ERROR_DESC_TYPEPATTERN_NOTIMPLEMENTED         "typePattern is not supported"
 
 #endif  // SRC_LIB_COMMON_ERRORMESSAGES_H_

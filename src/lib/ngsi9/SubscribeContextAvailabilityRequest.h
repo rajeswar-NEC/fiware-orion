@@ -64,10 +64,9 @@ typedef struct SubscribeContextAvailabilityRequest
   int                    restrictions;
 
   SubscribeContextAvailabilityRequest();
-  std::string  render(void);
+  std::string  toJsonV1(void);
   std::string  check(const std::string& predetectedError);
   void         release(void);
-  void         present(const std::string& indent);
 
   void         fill(EntityTypeInfo typeInfo);
 } SubscribeContextAvailabilityRequest;

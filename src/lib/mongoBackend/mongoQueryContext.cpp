@@ -93,19 +93,21 @@ static void addContextProviderEntity
 {
   for (unsigned int ix = 0; ix < cerV.size(); ++ix)
   {
-    if ((cerV[ix]->contextElement.entityId.id == enP->id) && (cerV[ix]->contextElement.entityId.type == enP->type))
+    if ((cerV[ix]->entity.id == enP->id) && (cerV[ix]->entity.type == enP->type))
     {
-      cerV[ix]->contextElement.providingApplicationList.push_back(pa);
+      LM_T(LmtForward, ("Pushing providingApplication to entity.providingApplicationList"));
+      cerV[ix]->entity.providingApplicationList.push_back(pa);
+      LM_T(LmtForward, ("pa.providerFormat: %d (2:V2, 1:V1)", pa.providerFormat));
       return;    /* by construction, no more than one CER with the same entity information should exist in the CERV) */
     }
   }
 
   /* Reached this point, it means that the cerV doesn't contain a proper CER, so we create it */
-  ContextElementResponse* cerP            = new ContextElementResponse();
-  cerP->contextElement.entityId.id        = enP->id;
-  cerP->contextElement.entityId.type      = enP->type;
-  cerP->contextElement.entityId.isPattern = "false";
-  cerP->contextElement.providingApplicationList.push_back(pa);
+  ContextElementResponse* cerP = new ContextElementResponse();
+
+  cerP->entity.fill(enP->id, enP->type, enP->isPattern);
+  LM_T(LmtForward, ("Pushing providingApplication to entity.providingApplicationList II"));
+  cerP->entity.providingApplicationList.push_back(pa);
 
   cerP->statusCode.fill(SccOk);
   cerV.push_back(cerP);
@@ -131,18 +133,22 @@ static void addContextProviderAttribute
 {
   for (unsigned int ix = 0; ix < cerV.size(); ++ix)
   {
-    if ((cerV[ix]->contextElement.entityId.id != enP->id) || (cerV[ix]->contextElement.entityId.type != enP->type))
+    if ((cerV[ix]->entity.id != enP->id) || (cerV[ix]->entity.type != enP->type))
     {
      continue;
     }
 
-    for (unsigned int jx = 0; jx < cerV[ix]->contextElement.contextAttributeVector.size(); ++jx)
+    for (unsigned int jx = 0; jx < cerV[ix]->entity.attributeVector.size(); ++jx)
     {
-      std::string attrName = cerV[ix]->contextElement.contextAttributeVector[jx]->name;
+      std::string attrName = cerV[ix]->entity.attributeVector[jx]->name;
 
       if (attrName == craP->name)
       {
         /* In this case, the attribute has been already found in local database. CPr is unnecessary */
+        LM_T(LmtForward, ("attribute has been already found in local database. CPr is unnecessary"));
+
+        // FIXME PR: This breaks the test - the providerFormat is never set and the default value (currently V1) is still valid
+        LM_T(LmtForward, ("This breaks the test non_legacy_notifications_with_accumulator.test - providerFormat is lost here"));
         return;
       }
     }
@@ -151,8 +157,8 @@ static void addContextProviderAttribute
     ContextAttribute* caP = new ContextAttribute(craP->name, "", "");
 
     caP->providingApplication = pa;
-    cerV[ix]->contextElement.contextAttributeVector.push_back(caP);
-
+    cerV[ix]->entity.attributeVector.push_back(caP);
+    LM_T(LmtForward, ("pa.providerFormat: %d (2:V2, 1:V1)", pa.providerFormat));
     return;
   }
 
@@ -161,18 +167,16 @@ static void addContextProviderAttribute
     /* Reached this point, it means that the cerV doesn't contain a proper CER, so we create it */
     ContextElementResponse* cerP            = new ContextElementResponse();
 
-    cerP->contextElement.entityId.id        = enP->id;
-    cerP->contextElement.entityId.type      = enP->type;
-    cerP->contextElement.entityId.isPattern = "false";
-
+    cerP->entity.fill(enP->id, enP->type, enP->isPattern);
     cerP->statusCode.fill(SccOk);
 
     ContextAttribute* caP = new ContextAttribute(craP->name, "", "");
 
     caP->providingApplication = pa;
-    cerP->contextElement.contextAttributeVector.push_back(caP);
-
+    cerP->entity.attributeVector.push_back(caP);
+    LM_T(LmtForward, ("caP->providingApplication.providerFormat: %d (2:V2, 1:V1)", caP->providingApplication.providerFormat));
     cerV.push_back(cerP);
+    LM_T(LmtForward, ("caP pushed to cerP->entity.attributeVector, and cerP pushed to cerV"));
   }
 }
 
@@ -226,17 +230,19 @@ static void addContextProviders
   {
     ContextRegistration cr = crrV[ix]->contextRegistration;
 
-    /* In the case a "filtering" entity was provided, check that the current CRR matches or skip to next CRR */
+    /* In case a "filtering" entity was provided, check that the current CRR matches or skip to next CRR */
     if (enP != NULL && !matchEntityInCrr(cr, enP))
     {
       continue;
     }
 
+    LM_T(LmtForward, ("cr.contextRegistrationAttributeVector.size == %d", cr.contextRegistrationAttributeVector.size()));
     if (cr.contextRegistrationAttributeVector.size() == 0)
     {
       if (!limitReached)
       {
         /* Registration without attributes */
+        LM_T(LmtForward, ("cr.entityIdVector.size == %d", cr.entityIdVector.size()));
         for (unsigned int eIx = 0; eIx < cr.entityIdVector.size(); ++eIx)
         {
           addContextProviderEntity(cerV, cr.entityIdVector[eIx], cr.providingApplication);
@@ -250,6 +256,10 @@ static void addContextProviders
       {
         for (unsigned int aIx = 0; aIx < cr.contextRegistrationAttributeVector.size(); ++aIx)
         {
+          LM_T(LmtForward, ("Calling addContextProviderAttribute. providerFormat == %d (1:V1, 2:V2). cr.providingApplication.providerFormat: %d",
+                            crrV[ix]->providerFormat,
+                            cr.providingApplication.providerFormat));
+
           addContextProviderAttribute(cerV,
                                       cr.entityIdVector[eIx],
                                       cr.contextRegistrationAttributeVector[aIx],
@@ -295,14 +305,84 @@ static void processGenericEntities
 
 /* ****************************************************************************
 *
-* mongoQueryContext - 
+* cerVectorPresent -
+*
+* FIXME: temporal debugging routine to be removed once forwarding works 100% ok
+*/
+void cerVectorPresent(const char* what, const ContextElementResponseVector& cerV)
+{
+  LM_T(LmtForward, ("%s: got a CER vector of %d items", what, cerV.size()));
+  LM_T(LmtForward, ("-------------------------------------------------------------"));
+
+  for (unsigned int ix = 0; ix < cerV.size(); ++ix)
+  {
+    Entity* eP = &cerV[ix]->entity;
+
+    LM_T(LmtForward, ("CER %d:", ix));
+    LM_T(LmtForward, ("  id: %s, type: %s", eP->id.c_str(), eP->type.c_str()));
+
+    LM_T(LmtForward, ("  %d attributes:", eP->attributeVector.size()));
+    for (unsigned int aIx = 0; aIx < eP->attributeVector.size(); aIx++)
+    {
+      ContextAttribute* aP = eP->attributeVector[aIx];
+
+      LM_T(LmtForward, ("      o %s", aP->name.c_str()));
+    }
+    LM_T(LmtForward, ("============================================================================"));
+  }
+}
+
+
+
+/* ****************************************************************************
+*
+* crrVectorPresent -
+*
+* FIXME: temporal debugging routine to be removed once forwarding works 100% ok
+*/
+void crrVectorPresent(const char* what, const ContextRegistrationResponseVector& crrV)
+{
+  LM_T(LmtForward, ("%s: got a CRR vector of %d items", what, crrV.size()));
+  LM_T(LmtForward, ("-------------------------------------------------------------"));
+  for (unsigned int ix = 0; ix < crrV.size(); ++ix)
+  {
+    ContextRegistration* crP = &crrV[ix]->contextRegistration;
+
+    LM_T(LmtForward, ("For providingApplication %s:", crP->providingApplication.string.c_str()));
+    LM_T(LmtForward, ("Forwarding Mode:         %s", (crP->providingApplication.providerFormat == PfJson)? "V1" : "V2"));
+    LM_T(LmtForward, ("  - %d entities:",             crP->entityIdVector.size()));
+
+    for (unsigned int eIx = 0; eIx < crP->entityIdVector.size(); ++eIx)
+    {
+      EntityId* eP = crP->entityIdVector[eIx];
+
+      LM_T(LmtForward, ("      o %s (type: '%s')", eP->id.c_str(), eP->type.c_str()));
+    }
+
+    LM_T(LmtForward, (" - - - - - -"));
+    LM_T(LmtForward, ("  - %d attributes:", crP->contextRegistrationAttributeVector.size()));
+    for (unsigned int aIx = 0; aIx < crP->contextRegistrationAttributeVector.size(); ++aIx)
+    {
+      ContextRegistrationAttribute* aP = crP->contextRegistrationAttributeVector[aIx];
+
+      LM_T(LmtForward, ("      o %s", aP->name.c_str()));
+    }
+    LM_T(LmtForward, ("============================================================================"));
+  }
+}
+
+
+
+/* ****************************************************************************
+*
+* mongoQueryContext -
 *
 * NOTE
 *   If the in/out-parameter countP is non-NULL then the number of matching entities
 *   must be returned in *countP.
 *
 *   This replaces the 'uriParams[URI_PARAM_PAGINATION_DETAILS]' way of passing this information.
-*   The old method was one-way, using the new method 
+*   The old method was one-way, using the new method
 */
 HttpStatusCode mongoQueryContext
 (
@@ -319,6 +399,7 @@ HttpStatusCode mongoQueryContext
   int         offset         = atoi(uriParams[URI_PARAM_PAGINATION_OFFSET].c_str());
   int         limit          = atoi(uriParams[URI_PARAM_PAGINATION_LIMIT].c_str());
 
+  LM_T(LmtForward, ("%d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
   std::string sortOrderList  = uriParams[URI_PARAM_SORTED];
 
   LM_T(LmtMongo, ("QueryContext Request"));
@@ -336,35 +417,11 @@ HttpStatusCode mongoQueryContext
   bool                         reqSemTaken;
   ContextElementResponseVector rawCerV;
 
-  //
-  // dateCreated and dateModified options are still supported although deprecated.
-  // Note that we check for attr list emptyness, as in that case the "*" needs
-  // to be added to print also user attributes
-  //
-  if (options[DATE_CREATED])
-  {
-    if (requestP->attributeList.size() == 0)
-    {
-      requestP->attributeList.push_back(ALL_ATTRS);
-    }
-
-    requestP->attributeList.push_back(DATE_CREATED);
-  }
-
-  if (options[DATE_MODIFIED])
-  {
-    if (requestP->attributeList.size() == 0)
-    {
-      requestP->attributeList.push_back(ALL_ATTRS);
-    }
-
-    requestP->attributeList.push_back(DATE_MODIFIED);
-  }
-
   reqSemTake(__FUNCTION__, "ngsi10 query request", SemReadOp, &reqSemTaken);
+
+  LM_T(LmtForward, ("%d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
   ok = entitiesQuery(requestP->entityIdVector,
                      requestP->attributeList,
-                     requestP->metadataList,
                      requestP->restriction,
                      &rawCerV,
                      &err,
@@ -378,6 +435,9 @@ HttpStatusCode mongoQueryContext
                      sortOrderList,
                      apiVersion);
 
+  LM_T(LmtForward, ("After entitiesQuery: %d items in qcrsP->contextElementResponseVector, %d items in rawCerV",
+                    responseP->contextElementResponseVector.size(),
+                    rawCerV.size()));
   if (!ok)
   {
     responseP->errorCode.fill(SccReceiverInternalError, err);
@@ -392,8 +452,11 @@ HttpStatusCode mongoQueryContext
   /* In the case of empty response, if only generic processing is needed */
   if (rawCerV.size() == 0)
   {
+    LM_T(LmtForward, ("Calling registrationsQuery I"));
     if (registrationsQuery(requestP->entityIdVector, requestP->attributeList, &crrV, &err, tenant, servicePathV, 0, 0, false))
     {
+      // FIXME: call to crrVectorPresent to be removed once forwarding works
+      // crrVectorPresent("registrationsQuery I", crrV);
       if (crrV.size() > 0)
       {
         processGenericEntities(requestP->entityIdVector, rawCerV, crrV, limitReached);
@@ -406,8 +469,11 @@ HttpStatusCode mongoQueryContext
   /* First CPr lookup (in the case some CER is not found): looking in E-A registrations */
   if (someContextElementNotFound(rawCerV))
   {
+    LM_T(LmtForward, ("Calling registrationsQuery II"));
     if (registrationsQuery(requestP->entityIdVector, requestP->attributeList, &crrV, &err, tenant, servicePathV, 0, 0, false))
     {
+      // FIXME: call to crrVectorPresent to be removed once forwarding works
+      // crrVectorPresent("registrationsQuery II", crrV);
       if (crrV.size() > 0)
       {
         fillContextProviders(rawCerV, crrV);
@@ -418,13 +484,17 @@ HttpStatusCode mongoQueryContext
     crrV.release();
   }
 
-  /* Second CPr lookup (in the case some element stills not being found): looking in E-<null> registrations */
+  LM_T(LmtForward, ("%d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
+  /* Second CPr lookup (in the case some elements still not being found): looking in E-<null> registrations */
   StringList attrNullList;
 
   if (someContextElementNotFound(rawCerV))
   {
+    LM_T(LmtForward, ("Calling registrationsQuery III"));
     if (registrationsQuery(requestP->entityIdVector, attrNullList, &crrV, &err, tenant, servicePathV, 0, 0, false))
     {
+      // FIXME: call to crrVectorPresent to be removed once forwarding works
+      // crrVectorPresent("registrationsQuery III", crrV);
       if (crrV.size() > 0)
       {
         fillContextProviders(rawCerV, crrV);
@@ -434,14 +504,20 @@ HttpStatusCode mongoQueryContext
     crrV.release();
   }
 
+  LM_T(LmtForward, ("%d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
   /* Special case: request with <null> attributes. In that case, entitiesQuery() may have captured some local attribute, but
-   * the list need to be completed. Note that in the case of having this request someContextElementNotFound() is always false
+   * the list needs to be completed. Note that in the case of having this request someContextElementNotFound() is always false
    * so we efficient not invoking registrationQuery() too much times
    */
+  LM_T(LmtForward, ("crrV.size == %d", crrV.size()));
+  LM_T(LmtForward, ("rawCerV.size == %d", rawCerV.size()));
   if (requestP->attributeList.size() == 0)
   {
+    LM_T(LmtForward, ("Calling registrationsQuery IV"));
     if (registrationsQuery(requestP->entityIdVector, requestP->attributeList, &crrV, &err, tenant, servicePathV, 0, 0, false))
     {
+      // FIXME: call to crrVectorPresent to be removed once forwarding works
+      // crrVectorPresent("registrationsQuery IV", crrV);
       if (crrV.size() > 0)
       {
         addContextProviders(rawCerV, crrV, limitReached);
@@ -452,7 +528,17 @@ HttpStatusCode mongoQueryContext
   }
 
   /* Prune "not found" CERs */
+  LM_T(LmtForward, ("Before pruning, we have %d elements in rawCerV", rawCerV.size()));
+  LM_T(LmtForward, ("Before pruning, we have %d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
+  // FIXME: call to cerVectorPresent to be removed once forwarding works
+  // cerVectorPresent("Before pruning", rawCerV);
+
   pruneContextElements(rawCerV, &responseP->contextElementResponseVector);
+
+  LM_T(LmtForward, ("After pruning, we have %d elements in rawCerV", rawCerV.size()));
+  LM_T(LmtForward, ("After pruning, we have %d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
+  // FIXME: call to cerVectorPresent to be removed once forwarding works
+  // cerVectorPresent("After pruning", rawCerV);
 
   /* Pagination stuff */
   if (responseP->contextElementResponseVector.size() == 0)
@@ -490,6 +576,7 @@ HttpStatusCode mongoQueryContext
     responseP->errorCode.fill(SccOk, details);
   }
 
+  LM_T(LmtForward, ("%d items in qcrsP->contextElementResponseVector", responseP->contextElementResponseVector.size()));
   rawCerV.release();
 
   reqSemGive(__FUNCTION__, "ngsi10 query request", reqSemTaken);

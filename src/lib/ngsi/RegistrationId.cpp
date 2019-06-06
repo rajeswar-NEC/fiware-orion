@@ -37,6 +37,26 @@
 
 /* ****************************************************************************
 *
+* RegistrationId::RegistrationId -
+*/
+RegistrationId::RegistrationId()
+{
+}
+
+
+
+/* ****************************************************************************
+*
+* RegistrationId::RegistrationId -
+*/
+RegistrationId::RegistrationId(const std::string& regId) : string(regId)
+{
+}
+
+
+
+/* ****************************************************************************
+*
 * RegistrationId::check -
 */
 std::string RegistrationId::check(void)
@@ -88,29 +108,9 @@ std::string RegistrationId::get(void) const
 
 /* ****************************************************************************
 *
-* RegistrationId::present -
+* RegistrationId::toJsonV1 -
 */
-void RegistrationId::present(const std::string& indent)
-{
-  if (string != "")
-  {
-    LM_T(LmtPresent, ("%sRegistrationId: %s\n", 
-		      indent.c_str(), 
-		      string.c_str()));
-  }
-  else
-  {
-    LM_T(LmtPresent, ("%sNo RegistrationId\n", indent.c_str()));
-  }
-}
-
-
-
-/* ****************************************************************************
-*
-* RegistrationId::render -
-*/
-std::string RegistrationId::render(RequestType requestType, bool comma)
+std::string RegistrationId::toJsonV1(RequestType requestType, bool comma)
 {
   if (string == "")
   {

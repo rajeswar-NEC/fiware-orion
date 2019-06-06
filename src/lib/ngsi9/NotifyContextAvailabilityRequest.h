@@ -43,9 +43,8 @@ typedef struct NotifyContextAvailabilityRequest
 
   NotifyContextAvailabilityRequest();
 
-  std::string   render(void);
+  std::string   toJsonV1(void);
   std::string   check(ApiVersion apiVersion, const std::string& predetectedError);
-  void          present(const std::string& indent);
   void          release(void);
 } NotifyContextAvailabilityRequest;
 

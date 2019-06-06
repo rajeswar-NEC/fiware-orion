@@ -85,20 +85,7 @@ std::string DiscoverContextAvailabilityRequest::check(const std::string& predete
   else
     return "OK";
 
-  return response.render();
-}
-
-
-
-/* ****************************************************************************
-*
-* DiscoverContextAvailabilityRequest::present -
-*/
-void DiscoverContextAvailabilityRequest::present(const std::string& indent)
-{
-   entityIdVector.present(indent);
-   attributeList.present(indent);
-   restriction.present(indent);
+  return response.toJsonV1();
 }
 
 

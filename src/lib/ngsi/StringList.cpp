@@ -32,6 +32,7 @@
 #include "common/globals.h"
 #include "common/tag.h"
 #include "common/string.h"
+#include "common/JsonHelper.h"
 #include "ngsi/StringList.h"
 
 
@@ -63,9 +64,27 @@ void StringList::fill(const std::string& commaSeparatedList)
 
 /* ****************************************************************************
 *
-* render - 
+* StringList::toJson -
 */
-std::string StringList::render(bool comma, const std::string& fieldName)
+std::string StringList::toJson(void)
+{
+  JsonVectorHelper jh;
+
+  for (unsigned int ix = 0; ix < stringV.size(); ++ix)
+  {
+    jh.addString(stringV[ix]);
+  }
+
+  return jh.str();
+}
+
+
+
+/* ****************************************************************************
+*
+* StringList::toJsonV1 -
+*/
+std::string StringList::toJsonV1(bool comma, const std::string& fieldName)
 {
   std::string  out = "";
 
@@ -103,24 +122,6 @@ std::string StringList::check(void)
   }
 
   return "OK";
-}
-
-
-
-/* ****************************************************************************
-*
-* StringList::present -
-*/
-void StringList::present(const std::string& indent)
-{
-  LM_T(LmtPresent, ("%String List",    indent.c_str()));
-
-  for (unsigned int ix = 0; ix < stringV.size(); ++ix)
-  {
-    LM_T(LmtPresent, ("%s  %s", 
-		      indent.c_str(), 
-			  stringV[ix].c_str()));
-  }
 }
 
 

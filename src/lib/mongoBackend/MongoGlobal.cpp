@@ -246,9 +246,10 @@ void mongoInit
   // only the first operation will succeed, all other operations will have no effect."
   //
   ensureLocationIndex("");
+  ensureDateExpirationIndex("");
   if (mtenant)
   {
-    /* We get tenant database names and apply ensure the location index in each one */
+    /* We get tenant database names and apply ensure the location and date expiration indexes in each one */
     std::vector<std::string> orionDbs;
 
     getOrionDatabases(&orionDbs);
@@ -258,6 +259,7 @@ void mongoInit
       std::string orionDb = orionDbs[ix];
       std::string tenant = orionDb.substr(dbName.length() + 1);   // + 1 for the "_" in "orion_tenantA"
       ensureLocationIndex(tenant);
+      ensureDateExpirationIndex(tenant);
     }
   }
 }
@@ -675,6 +677,24 @@ bool mongoLocationCapable(void)
 
 /* ***************************************************************************
 *
+* mongoExpirationCapable -
+*/
+bool mongoExpirationCapable(void)
+{
+  int mayor;
+  int minor;
+
+  /* TTL (Time To Live) indexes was introduced in MongoDB 2.2,
+   *  although the expireAfterSeconds: 0 usage is not shown in documentation until 2.4 */
+  mongoVersionGet(&mayor, &minor);
+
+  return ((mayor == 2) && (minor >= 4)) || (mayor > 2);
+}
+
+
+
+/* ***************************************************************************
+*
 * ensureLocationIndex -
 */
 void ensureLocationIndex(const std::string& tenant)
@@ -685,13 +705,29 @@ void ensureLocationIndex(const std::string& tenant)
     std::string index = ENT_LOCATION "." ENT_LOCATION_COORDS;
     std::string err;
 
-    collectionCreateIndex(getEntitiesCollectionName(tenant), BSON(index << "2dsphere"), &err);
+    collectionCreateIndex(getEntitiesCollectionName(tenant), BSON(index << "2dsphere"), false, &err);
     LM_T(LmtMongo, ("ensuring 2dsphere index on %s (tenant %s)", index.c_str(), tenant.c_str()));
   }
 }
 
 
 
+/* ****************************************************************************
+ *
+ * ensureDateExpirationIndex -
+ */
+void ensureDateExpirationIndex(const std::string& tenant)
+{
+  /* Ensure index for entity expiration, in the case of using 2.4 */
+  if (mongoExpirationCapable())
+  {
+    std::string index = ENT_EXPIRATION;
+    std::string err;
+
+    collectionCreateIndex(getEntitiesCollectionName(tenant), BSON(index << 1), true, &err);
+    LM_T(LmtMongo, ("ensuring TTL date expiration index on %s (tenant %s)", index.c_str(), tenant.c_str()));
+  }
+}
 /* ****************************************************************************
 *
 * matchEntity -
@@ -740,7 +776,16 @@ bool includedEntity(EntityId en, const EntityIdVector& entityIdV)
 {
   for (unsigned int ix = 0; ix < entityIdV.size(); ++ix)
   {
-    if (matchEntity(&en, entityIdV[ix]))
+    if (en.isPatternIsTrue() && en.id == ".*")
+    {
+      // By the moment the only supported pattern is .*. In this case matching is
+      // based exclusively in type
+      if (en.type == entityIdV[ix]->type)
+      {
+        return true;
+      }
+    }
+    else if (matchEntity(&en, entityIdV[ix]))
     {
       return true;
     }
@@ -754,20 +799,20 @@ bool includedEntity(EntityId en, const EntityIdVector& entityIdV)
 *
 * includedAttribute -
 */
-bool includedAttribute(const ContextRegistrationAttribute& attr, const StringList& attrsV)
+bool includedAttribute(const std::string& attrName, const StringList& attrsV)
 {
   //
-  // This is the case in which the discoverAvailabilityRequest doesn't include attributes,
+  // attrsV.size() == 0 is the case in which the query request doesn't include attributes,
   // so all the attributes are included in the response
   //
-  if (attrsV.size() == 0)
+  if ((attrsV.size() == 0) || attrsV.lookup(ALL_ATTRS))
   {
     return true;
   }
 
   for (unsigned int ix = 0; ix < attrsV.size(); ++ix)
   {
-    if (attrsV[ix] == attr.name)
+    if (attrsV[ix] == attrName)
     {
       return true;
     }
@@ -1158,24 +1203,199 @@ bool processAreaScopeV2(const Scope* scoP, BSONObj* areaQueryP)
 
 /* ****************************************************************************
 *
-* addDatesForAttrs -
+* addIfNotPresentAttr -
+*
+* If the attribute doesn't exist in the entity, then add it (shadowed, render will depend on filter)
 */
-static void addDatesForAttrs(ContextElementResponse* cerP, bool includeCreDate, bool includeModDate)
+static void addIfNotPresentAttr
+(
+  Entity*             eP,
+  const std::string&  name,
+  const std::string&  type,
+  double              value
+)
 {
-  for (unsigned int ix = 0; ix < cerP->contextElement.contextAttributeVector.size(); ix++)
+  if (eP->attributeVector.get(name) == -1)
   {
-    ContextAttribute* caP = cerP->contextElement.contextAttributeVector[ix];
+    ContextAttribute* caP = new ContextAttribute(name, type, value);
+    caP->shadowed = true;
+    eP->attributeVector.push_back(caP);
+  }
+}
 
-    if (includeCreDate && caP->creDate != 0)
+
+
+/* ****************************************************************************
+*
+* addIfNotPresentAttrMetadata (double version) -
+*
+* If the metadata doesn't exist in the attribute, then add it (shadowed, render will depend on filter)
+*/
+static void addIfNotPresentMetadata
+(
+  ContextAttribute*   caP,
+  const std::string&  name,
+  const std::string&  type,
+  double              value
+)
+{
+  if (caP->metadataVector.lookupByName(name) == NULL)
+  {
+    Metadata* mdP = new Metadata(name, type, value);
+    mdP->shadowed = true;
+    caP->metadataVector.push_back(mdP);
+  }
+}
+
+
+/* ****************************************************************************
+*
+* addIfNotPresentAttrMetadata (string version) -
+*
+* If the metadata doesn't exist in the attribute, then add it (shadowed, render will depend on filter)
+*/
+static void addIfNotPresentMetadata
+(
+  ContextAttribute*   caP,
+  const std::string&  name,
+  const std::string&  type,
+  const std::string&  value
+)
+{
+  if (caP->metadataVector.lookupByName(name) == NULL)
+  {
+    Metadata* mdP = new Metadata(name, type, value);
+    mdP->shadowed = true;
+    caP->metadataVector.push_back(mdP);
+  }
+}
+
+
+
+/* ****************************************************************************
+*
+* addIfNotPresentPreviousValueMetadata
+*
+* If the metadata doesn't exist in the attribute, then add it (shadowed, render will depend on filter)
+*/
+static void addIfNotPresentPreviousValueMetadata(ContextAttribute* caP)
+{
+  if (caP->metadataVector.lookupByName(NGSI_MD_PREVIOUSVALUE) != NULL)
+  {
+    return;
+  }
+
+  // Created the metadata
+  Metadata* mdP = NULL;
+  ContextAttribute* previousValueP = caP->previousValue;
+
+  if (previousValueP->compoundValueP == NULL)
+  {
+    switch (previousValueP->valueType)
     {
-      Metadata*   mdP = new Metadata(NGSI_MD_DATECREATED, DATE_TYPE, caP->creDate);
-      caP->metadataVector.push_back(mdP);
+    case orion::ValueTypeString:
+      mdP = new Metadata(NGSI_MD_PREVIOUSVALUE, previousValueP->type, previousValueP->stringValue);
+      break;
+
+    case orion::ValueTypeBoolean:
+      mdP = new Metadata(NGSI_MD_PREVIOUSVALUE, previousValueP->type, previousValueP->boolValue);
+      break;
+
+    case orion::ValueTypeNumber:
+      mdP = new Metadata(NGSI_MD_PREVIOUSVALUE, previousValueP->type, previousValueP->numberValue);
+      break;
+
+    case orion::ValueTypeNull:
+      mdP = new Metadata(NGSI_MD_PREVIOUSVALUE, previousValueP->type, "");
+      mdP->valueType = orion::ValueTypeNull;
+      break;
+
+    case orion::ValueTypeNotGiven:
+      LM_E(("Runtime Error (value not given for metadata)"));
+      return;
+
+    default:
+      LM_E(("Runtime Error (unknown value type: %d)", previousValueP->valueType));
+      return;
+    }
+  }
+  else
+  {
+    mdP            = new Metadata(NGSI_MD_PREVIOUSVALUE, previousValueP->type, "");
+    mdP->valueType = previousValueP->valueType;
+
+    // Steal the compound
+    mdP->compoundValueP = previousValueP->compoundValueP;
+    previousValueP->compoundValueP = NULL;
+  }
+
+  // Add it to the vector (shadowed)
+  mdP->shadowed = true;
+  caP->metadataVector.push_back(mdP);
+}
+
+
+
+/* ****************************************************************************
+*
+* addBuiltins -
+*
+* Add builtin attributes and metadata. Note that not all are necessarily rendered
+* at the end, given the filtering process done at rendering stage.
+*
+* Attributes:
+* - dateCreated
+* - dateModified
+*
+* Metadata:
+* - dateModified
+* - dateCreated
+* - actionType
+* - previousValue
+*
+* Note that dateExpires it not added by this function, as it is implemented
+* as regular attribute, recoved from the DB in the "attrs" key-map.
+*/
+void addBuiltins(ContextElementResponse* cerP)
+{
+  // dateCreated attribute
+  if (cerP->entity.creDate != 0)
+  {
+    addIfNotPresentAttr(&cerP->entity, DATE_CREATED, DATE_TYPE, cerP->entity.creDate);
+  }
+
+  // dateModified attribute
+  if (cerP->entity.modDate != 0)
+  {
+    addIfNotPresentAttr(&cerP->entity, DATE_MODIFIED, DATE_TYPE, cerP->entity.modDate);
+  }
+
+  for (unsigned int ix = 0; ix < cerP->entity.attributeVector.size(); ix++)
+  {
+    ContextAttribute* caP = cerP->entity.attributeVector[ix];
+
+    // dateCreated medatada
+    if (caP->creDate != 0)
+    {
+      addIfNotPresentMetadata(caP, NGSI_MD_DATECREATED, DATE_TYPE, caP->creDate);
     }
 
-    if (includeModDate && caP->modDate != 0)
+    // dateModified metadata
+    if (caP->modDate != 0)
     {
-      Metadata*   mdP = new Metadata(NGSI_MD_DATEMODIFIED, DATE_TYPE, caP->modDate);
-      caP->metadataVector.push_back(mdP);
+      addIfNotPresentMetadata(caP, NGSI_MD_DATEMODIFIED, DATE_TYPE, caP->modDate);
+    }
+
+    // actionType
+    if (caP->actionType != "")
+    {
+      addIfNotPresentMetadata(caP, NGSI_MD_ACTIONTYPE, DEFAULT_ATTR_STRING_TYPE, caP->actionType);
+    }
+
+    // previosValue
+    if (caP->previousValue != NULL)
+    {
+      addIfNotPresentPreviousValueMetadata(caP);
     }
   }
 }
@@ -1220,7 +1440,6 @@ bool entitiesQuery
 (
   const EntityIdVector&            enV,
   const StringList&                attrL,
-  const StringList&                metadataList,
   const Restriction&               res,
   ContextElementResponseVector*    cerV,
   std::string*                     err,
@@ -1271,6 +1490,13 @@ bool entitiesQuery
   {
     std::string attrName = attrL[ix];
 
+    /* Early exit in the case of ATTR_ALL */
+    if (attrName == ALL_ATTRS)
+    {
+      LM_T(LmtMongo, ("Attributes wildcard found"));
+      break;
+    }
+
     /* Custom metadata (e.g. dateCreated) are not "real" attributes in the DB, so they cannot
      * be included in the search query */
     if (!isCustomAttr(attrName))
@@ -1280,7 +1506,8 @@ bool entitiesQuery
     }
   }
 
-  if (attrs.arrSize() > 0)
+  // If the attributes wildcard is in the list, then we ommit the attributes filter
+  if ((attrs.arrSize() > 0) && (!attrL.lookup(ALL_ATTRS)))
   {
     /* If we don't do this checking, the {$in: [] } in the attribute name part will
      * make the query fail*/
@@ -1468,11 +1695,11 @@ bool entitiesQuery
       //
       if (enV.size() == 1)
       {
-        cer->contextElement.entityId.fill(enV[0]);
+        cer->entity.fill(enV[0]->id, enV[0]->type, enV[0]->isPattern);
       }
       else
       {
-        cer->contextElement.entityId.fill("", "", "");
+        cer->entity.fill("", "", "");
       }
 
       cer->statusCode.fill(SccReceiverInternalError, exErr);
@@ -1502,7 +1729,11 @@ bool entitiesQuery
     LM_T(LmtMongo, ("retrieved document [%d]: '%s'", docs, r.toString().c_str()));
     ContextElementResponse*  cer = new ContextElementResponse(r, attrL, includeEmpty, apiVersion);
 
-    addDatesForAttrs(cer, metadataList.lookup(NGSI_MD_DATECREATED), metadataList.lookup(NGSI_MD_DATEMODIFIED));
+    // Add builtin attributes and metadata (only in NGSIv2)
+    if (apiVersion == V2)
+    {
+      addBuiltins(cer);
+    }
 
     /* All the attributes existing in the request but not found in the response are added with 'found' set to false */
     for (unsigned int ix = 0; ix < attrL.size(); ++ix)
@@ -1516,9 +1747,9 @@ bool entitiesQuery
         continue;
       }
 
-      for (unsigned int jx = 0; jx < cer->contextElement.contextAttributeVector.size(); ++jx)
+      for (unsigned int jx = 0; jx < cer->entity.attributeVector.size(); ++jx)
       {
-        if (attrName == cer->contextElement.contextAttributeVector[jx]->name)
+        if (attrName == cer->entity.attributeVector[jx]->name)
         {
           found = true;
           break;
@@ -1528,7 +1759,7 @@ bool entitiesQuery
       if (!found)
       {
         ContextAttribute* caP = new ContextAttribute(attrName, "", "", false);
-        cer->contextElement.contextAttributeVector.push_back(caP);
+        cer->entity.attributeVector.push_back(caP);
       }
     }
 
@@ -1560,9 +1791,7 @@ bool entitiesQuery
 
       for (unsigned int jx = 0; jx < cerV->size(); ++jx)
       {
-        EntityId eP = (*cerV)[jx]->contextElement.entityId;
-
-        if ((eP.id == enV[ix]->id) && (eP.type == enV[ix]->type))
+        if (((*cerV)[jx]->entity.id == enV[ix]->id) && ((*cerV)[jx]->entity.type == enV[ix]->type))
         {
           needToAdd = false;
           break;  /* jx */
@@ -1573,9 +1802,9 @@ bool entitiesQuery
       {
         ContextElementResponse* cerP = new ContextElementResponse();
 
-        cerP->contextElement.entityId.id = enV[ix]->id;
-        cerP->contextElement.entityId.type = enV[ix]->type;
-        cerP->contextElement.entityId.isPattern = "false";
+        cerP->entity.id = enV[ix]->id;
+        cerP->entity.type = enV[ix]->type;
+        cerP->entity.isPattern = "false";
 
         //
         // This entity has to be pruned if after CPr searching no attribute is "added" to it.
@@ -1588,7 +1817,7 @@ bool entitiesQuery
         {
           ContextAttribute* caP = new ContextAttribute(attrL[jx], "", "", false);
 
-          cerP->contextElement.contextAttributeVector.push_back(caP);
+          cerP->entity.attributeVector.push_back(caP);
         }
 
         cerP->statusCode.fill(SccOk);
@@ -1616,33 +1845,35 @@ void pruneContextElements(const ContextElementResponseVector& oldCerV, ContextEl
     ContextElementResponse* cerP    = oldCerV[ix];
     ContextElementResponse* newCerP = new ContextElementResponse();
 
-    /* Note we cannot use the ContextElement::fill() method, given that it also copies the ContextAttributeVector. The side-effect
-     * of this is that attributeDomainName and domainMetadataVector are not being copied, but it should not be a problem, given that
-     * domain attributes are not implemented */
-    newCerP->contextElement.entityId.fill(&cerP->contextElement.entityId);
+    newCerP->entity.fill(cerP->entity.id,
+                         cerP->entity.type,
+                         cerP->entity.isPattern,
+                         cerP->entity.servicePath,
+                         cerP->entity.creDate,
+                         cerP->entity.modDate);
 
     // FIXME P10: not sure if this is the right way to do it, maybe we need a fill() method for this
-    newCerP->contextElement.providingApplicationList = cerP->contextElement.providingApplicationList;
+    newCerP->entity.providingApplicationList = cerP->entity.providingApplicationList;
     newCerP->statusCode.fill(&cerP->statusCode);
 
     bool pruneEntity = cerP->prune;
 
-    for (unsigned int jx = 0; jx < cerP->contextElement.contextAttributeVector.size(); ++jx)
+    for (unsigned int jx = 0; jx < cerP->entity.attributeVector.size(); ++jx)
     {
-      ContextAttribute* caP = cerP->contextElement.contextAttributeVector[jx];
+      ContextAttribute* caP = cerP->entity.attributeVector[jx];
 
       if (caP->found)
       {
         ContextAttribute* newCaP = new ContextAttribute(caP);
-        newCerP->contextElement.contextAttributeVector.push_back(newCaP);
+        newCerP->entity.attributeVector.push_back(newCaP);
       }
     }
 
     /* If after pruning the entity has no attribute and no CPr information, then it is not included
      * in the output vector, except if "prune" is set to false */
     if (pruneEntity &&
-        (newCerP->contextElement.contextAttributeVector.size()   == 0) &&
-        (newCerP->contextElement.providingApplicationList.size() == 0))
+        (newCerP->entity.attributeVector.size()          == 0) &&
+        (newCerP->entity.providingApplicationList.size() == 0))
     {
       newCerP->release();
       delete newCerP;
@@ -1664,14 +1895,9 @@ static void processEntity(ContextRegistrationResponse* crr, const EntityIdVector
 {
   EntityId en;
 
-  en.id   = getStringFieldF(entity, REG_ENTITY_ID);
-  en.type = entity.hasField(REG_ENTITY_TYPE) ? getStringFieldF(entity, REG_ENTITY_TYPE) : "";
-
-  /* isPattern = true is not allowed in registrations so it is not in the
-   * document retrieved with the query; however we will set it to be formally correct
-   * with NGSI spec
-   */
-  en.isPattern = std::string("false");
+  en.id        = getStringFieldF(entity, REG_ENTITY_ID);
+  en.type      = entity.hasField(REG_ENTITY_TYPE)?      getStringFieldF(entity, REG_ENTITY_TYPE)      : "";
+  en.isPattern = entity.hasField(REG_ENTITY_ISPATTERN)? getStringFieldF(entity, REG_ENTITY_ISPATTERN) : "false";
 
   if (includedEntity(en, enV))
   {
@@ -1691,15 +1917,11 @@ static void processAttribute(ContextRegistrationResponse* crr, const StringList&
 {
   ContextRegistrationAttribute attr(
     getStringFieldF(attribute, REG_ATTRS_NAME),
-    getStringFieldF(attribute, REG_ATTRS_TYPE),
-    getStringFieldF(attribute, REG_ATTRS_ISDOMAIN));
+    getStringFieldF(attribute, REG_ATTRS_TYPE));
 
-  // FIXME: we don't take metadata into account at the moment
-  // attr.metadataV = ..
-
-  if (includedAttribute(attr, attrL))
+  if (includedAttribute(attr.name, attrL))
   {
-    ContextRegistrationAttribute* attrP = new ContextRegistrationAttribute(attr.name, attr.type, attr.isDomain);
+    ContextRegistrationAttribute* attrP = new ContextRegistrationAttribute(attr.name, attr.type);
     crr->contextRegistration.contextRegistrationAttributeVector.push_back(attrP);
   }
 }
@@ -1716,14 +1938,15 @@ static void processContextRegistrationElement
   const EntityIdVector&               enV,
   const StringList&                   attrL,
   ContextRegistrationResponseVector*  crrV,
-  MimeType                            mimeType
+  MimeType                            mimeType,
+  ProviderFormat                      providerFormat
 )
 {
   ContextRegistrationResponse crr;
 
   crr.contextRegistration.providingApplication.set(getStringFieldF(cr, REG_PROVIDING_APPLICATION));
-  crr.contextRegistration.providingApplication.setMimeType(mimeType);
-
+  crr.contextRegistration.providingApplication.setProviderFormat(providerFormat);
+  LM_T(LmtForward, ("Set providerFormat to %d for CRR", providerFormat));
   std::vector<BSONElement> queryEntityV = getFieldF(cr, REG_ENTITIES).Array();
 
   for (unsigned int ix = 0; ix < queryEntityV.size(); ++ix)
@@ -1764,6 +1987,7 @@ static void processContextRegistrationElement
     ContextRegistrationResponse* crrP = new ContextRegistrationResponse();
 
     crrP->contextRegistration = crr.contextRegistration;
+    crrP->providerFormat      = providerFormat;
 
     crrV->push_back(crrP);
   }
@@ -1793,49 +2017,71 @@ bool registrationsQuery
   long long*                          countP
 )
 {
+  // query structure:
+  //
+  // NOTE: 'cr' is and abreviation of 'contextRegistration'
+  //
+  // {
+  //   $or: [
+  //          { cr.entities.id: E1,cr.entities.type: T1} }, ...,         (isPattern = false, with type)
+  //          { cr.entities.id: E2 }, ...                                (isPattern = false, no type)
+  //          { cr.entities.id: /E.*3/, crs.entities.type: T3 } }, ...,  (isPattern = true, with type)
+  //          { cr.entities.id: /E.*4/, }, ...,                          (isPattern = true, no type)
+  //
+  //          (next two ones are for "universal pattern" registrations)
+  //
+  //          { cr.entities.id: ".*", cr.entities.isPattern: "true", crs.entities.type: {$in: [T1, T3, ...} },
+  //          { cr.entities.id: ".*", cr.entities.isPattern: "true", crs.entities.type: {$exists: false } },
+  //   ],
+  //   cr.attrs.name : { $in: [ A1, ... ] },  (only if attrs > 0)
+  //   servicePath: ... ,
+  //   expiration: { $gt: ... }
+  // }
+  //
+  // FIXME P5: the 'contextRegistration' token (19 chars) repeats in the query BSON. It would be better use 'cr' (2 chars)
+  // but this would need a data model migration in DB
+
   /* Build query based on arguments */
-  // FIXME P2: this implementation needs to be refactored for cleanup
-  std::string       contextRegistrationEntities     = REG_CONTEXT_REGISTRATION "." REG_ENTITIES;
-  std::string       contextRegistrationEntitiesId   = REG_CONTEXT_REGISTRATION "." REG_ENTITIES "." REG_ENTITY_ID;
-  std::string       contextRegistrationEntitiesType = REG_CONTEXT_REGISTRATION "." REG_ENTITIES "." REG_ENTITY_TYPE;
-  std::string       contextRegistrationAttrsNames   = REG_CONTEXT_REGISTRATION "." REG_ATTRS    "." REG_ATTRS_NAME;
+  std::string       crEntitiesId      = REG_CONTEXT_REGISTRATION "." REG_ENTITIES "." REG_ENTITY_ID;
+  std::string       crEntitiesType    = REG_CONTEXT_REGISTRATION "." REG_ENTITIES "." REG_ENTITY_TYPE;
+  std::string       crEntitiesPattern = REG_CONTEXT_REGISTRATION "." REG_ENTITIES "." REG_ENTITY_ISPATTERN;
+  std::string       crAttrsNames      = REG_CONTEXT_REGISTRATION "." REG_ATTRS    "." REG_ATTRS_NAME;
   BSONArrayBuilder  entityOr;
-  BSONArrayBuilder  entitiesWithType;
-  BSONArrayBuilder  entitiesWithoutType;
+  BSONArrayBuilder  types;
 
   for (unsigned int ix = 0; ix < enV.size(); ++ix)
   {
     const EntityId* en = enV[ix];
+    BSONObjBuilder b;
 
     if (isTrue(en->isPattern))
     {
-      BSONObjBuilder b;
-
-      b.appendRegex(contextRegistrationEntitiesId, en->id);
-      if (en->type != "")
-      {
-        b.append(contextRegistrationEntitiesType, en->type);
-      }
-      entityOr.append(b.obj());
+      b.appendRegex(crEntitiesId, en->id);
     }
     else  /* isPattern = false */
     {
-      if (en->type == "")
-      {
-        entitiesWithoutType.append(en->id);
-        LM_T(LmtMongo, ("Entity discovery without type: id '%s'", en->id.c_str()));
-      }
-      else
-      {
-        /* We have detected that sometimes mongo stores { id: ..., type ...} and others { type: ..., id: ...},
-           so we have to take both them into account
-        */
-        entitiesWithType.append(BSON(REG_ENTITY_ID << en->id << REG_ENTITY_TYPE << en->type));
-        entitiesWithType.append(BSON(REG_ENTITY_TYPE << en->type << REG_ENTITY_ID << en->id));
-        LM_T(LmtMongo, ("Entity discovery: {id: %s, type: %s}", en->id.c_str(), en->type.c_str()));
-      }
+      b.append(crEntitiesId, en->id);
     }
+
+    if (en->type != "")
+    {
+      b.append(crEntitiesType, en->type);
+      // FIXME P3: this way of accumulating types in the BSONBuilder doesn't avoid duplication. It doesn't
+      // hurt too much, but it would be better to use a std::map to ensure uniqueness
+      types.append(en->type);
+    }
+    entityOr.append(b.obj());
   }
+
+  // '.*' pattern match every other pattern and every not pattern entity. We add a query checking only the types
+  // and the case of no type
+  entityOr.append(BSON(crEntitiesId      << ".*" <<
+                       crEntitiesPattern << "true" <<
+                       crEntitiesType    << BSON("$in" << types.arr())));
+
+  entityOr.append(BSON(crEntitiesId      << ".*" <<
+                       crEntitiesPattern << "true" <<
+                       crEntitiesType    << BSON("$exists" << false)));
 
   BSONArrayBuilder attrs;
 
@@ -1847,9 +2093,6 @@ bool registrationsQuery
     LM_T(LmtMongo, ("Attribute discovery: '%s'", attrName.c_str()));
   }
 
-  entityOr.append(BSON(contextRegistrationEntities << BSON("$in" << entitiesWithType.arr())));
-  entityOr.append(BSON(contextRegistrationEntitiesId << BSON("$in" <<entitiesWithoutType.arr())));
-
   BSONObjBuilder queryBuilder;
 
   /* The $or clause could be omitted if it contains only one element, but we can assume that
@@ -1860,10 +2103,8 @@ bool registrationsQuery
 
   if (attrs.arrSize() > 0)
   {
-    /* If we don't do this checking, the {$in: [] } in the attribute name part will
-     * make the query fail
-     */
-    queryBuilder.append(contextRegistrationAttrsNames, BSON("$in" << attrs.arr()));
+    /* If we don't do this check, the {$in: [] } of the attribute name part makes the query fail */
+    queryBuilder.append(crAttrsNames, BSON("$in" << attrs.arr()));
   }
 
   //
@@ -1910,14 +2151,19 @@ bool registrationsQuery
       continue;
     }
     docs++;
+
     LM_T(LmtMongo, ("retrieved document [%d]: '%s'", docs, r.toString().c_str()));
+    LM_T(LmtForward, ("retrieved document [%d]: '%s'", docs, r.toString().c_str()));
 
     MimeType                  mimeType = JSON;
     std::vector<BSONElement>  queryContextRegistrationV = getFieldF(r, REG_CONTEXT_REGISTRATION).Array();
+    std::string               format                    = getStringFieldF(r, REG_FORMAT);
+    ProviderFormat            providerFormat            = (format == "")? PfJson : (format == "JSON")? PfJson : PfV2;
 
     for (unsigned int ix = 0 ; ix < queryContextRegistrationV.size(); ++ix)
     {
-      processContextRegistrationElement(queryContextRegistrationV[ix].embeddedObject(), enV, attrL, crrV, mimeType);
+      LM_T(LmtForward, ("Processing ContextRegistrationElement. providerFormat == '%s' (%d)", format.c_str(), providerFormat));
+      processContextRegistrationElement(queryContextRegistrationV[ix].embeddedObject(), enV, attrL, crrV, mimeType, providerFormat);
     }
 
     /* FIXME: note that given the response doesn't distinguish from which registration ID the
@@ -1950,7 +2196,7 @@ bool isCondValueInContextElementResponse(ConditionValueList* condValues, Context
   {
     for (unsigned int aclx = 0; aclx < cerV->size(); ++aclx)
     {
-      ContextAttributeVector caV = (*cerV)[aclx]->contextElement.contextAttributeVector;
+      ContextAttributeVector caV = (*cerV)[aclx]->entity.attributeVector;
 
       for (unsigned int kx = 0; kx < caV.size(); ++kx)
       {
@@ -2061,9 +2307,9 @@ static void setOnSubscriptionMetadata(ContextElementResponseVector* cerVP)
   {
     ContextElementResponse* cerP = (*cerVP)[ix];
 
-    for (unsigned int jx = 0; jx < cerP->contextElement.contextAttributeVector.size(); jx++)
+    for (unsigned int jx = 0; jx < cerP->entity.attributeVector.size(); jx++)
     {
-      ContextAttribute*  caP     = cerP->contextElement.contextAttributeVector[jx];
+      ContextAttribute*  caP     = cerP->entity.attributeVector[jx];
       Metadata*          newMdP  = new Metadata(NGSI_MD_NOTIF_ONSUBCHANGE, DEFAULT_ATTR_BOOL_TYPE, true);
 
       caP->metadataVector.push_back(newMdP);
@@ -2108,7 +2354,8 @@ static bool processOnChangeConditionForSubscription
   const Restriction*               resP,
   const std::string&               fiwareCorrelator,
   const std::vector<std::string>&  attrsOrder,
-  bool                             blacklist
+  bool                             blacklist,
+  ApiVersion                       apiVersion
 )
 {
   std::string                   err;
@@ -2118,14 +2365,14 @@ static bool processOnChangeConditionForSubscription
   StringList                    metadataList;
 
   metadataList.fill(metadataV);
-  if (!blacklist && !entitiesQuery(enV, attrL, metadataList, *resP, &rawCerV, &err, true, tenant, servicePathV))
+  if (!blacklist && !entitiesQuery(enV, attrL, *resP, &rawCerV, &err, true, tenant, servicePathV, 0, 0, NULL, NULL, "", apiVersion))
   {
     ncr.contextElementResponseVector.release();
     rawCerV.release();
 
     return false;
   }
-  else if (blacklist && !entitiesQuery(enV, emptyList, metadataList, *resP, &rawCerV, &err, true, tenant, servicePathV))
+  else if (blacklist && !entitiesQuery(enV, metadataList, *resP, &rawCerV, &err, true, tenant, servicePathV, 0, 0, NULL, NULL, "", apiVersion))
   {
     ncr.contextElementResponseVector.release();
     rawCerV.release();
@@ -2135,6 +2382,13 @@ static bool processOnChangeConditionForSubscription
 
   /* Prune "not found" CERs */
   pruneContextElements(rawCerV, &ncr.contextElementResponseVector);
+
+  // Add builtin attributes and metadata (both NGSIv1 and NGSIv2 as this is
+  // for notifications and NGSIv2 builtins can be used in NGSIv1 notifications) */
+  for (unsigned int ix = 0; ix < ncr.contextElementResponseVector.size() ; ix++)
+  {
+    addBuiltins(ncr.contextElementResponseVector[ix]);
+  }
 
 #ifdef WORKAROUND_2994
   delayedReleaseAdd(rawCerV);
@@ -2166,7 +2420,7 @@ static bool processOnChangeConditionForSubscription
       ContextElementResponseVector  allCerV;
 
 
-      if (!entitiesQuery(enV, emptyList, metadataList, *resP, &rawCerV, &err, false, tenant, servicePathV))
+      if (!entitiesQuery(enV, emptyList, *resP, &rawCerV, &err, false, tenant, servicePathV, 0, 0, NULL, NULL, "", apiVersion))
       {
 #ifdef WORKAROUND_2994
         delayedReleaseAdd(rawCerV);
@@ -2192,15 +2446,15 @@ static bool processOnChangeConditionForSubscription
       if (isCondValueInContextElementResponse(condValues, &allCerV))
       {
         /* Send notification */
-        getNotifier()->sendNotifyContextRequest(&ncr,
+        getNotifier()->sendNotifyContextRequest(ncr,
                                                 notifyHttpInfo,
                                                 tenant,
                                                 xauthToken,
                                                 fiwareCorrelator,
                                                 renderFormat,
                                                 attrsOrder,
-                                                metadataV,
-                                                blacklist);
+                                                blacklist,
+                                                metadataV);
         allCerV.release();
         ncr.contextElementResponseVector.release();
 
@@ -2211,15 +2465,16 @@ static bool processOnChangeConditionForSubscription
     }
     else
     {
-      getNotifier()->sendNotifyContextRequest(&ncr,
+      getNotifier()->sendNotifyContextRequest(ncr,
                                               notifyHttpInfo,
                                               tenant,
                                               xauthToken,
                                               fiwareCorrelator,
                                               renderFormat,
                                               attrsOrder,
-                                              metadataV,
-                                              blacklist);
+                                              blacklist,
+                                              metadataV);
+
       ncr.contextElementResponseVector.release();
 
       return true;
@@ -2254,7 +2509,9 @@ static BSONArray processConditionVector
   const std::string&               status,
   const std::string&               fiwareCorrelator,
   const std::vector<std::string>&  attrsOrder,
-  bool                             blacklist
+  bool                             blacklist,
+  const bool&                      skipInitialNotification,
+  ApiVersion                       apiVersion
 )
 {
   BSONArrayBuilder conds;
@@ -2272,7 +2529,7 @@ static BSONArray processConditionVector
         conds.append(nc->condValueList[jx]);
       }
 
-      if ((status == STATUS_ACTIVE) &&
+      if ((status == STATUS_ACTIVE) && !skipInitialNotification &&
           (processOnChangeConditionForSubscription(enV,
                                                    attrL,
                                                    metadataV,
@@ -2286,7 +2543,8 @@ static BSONArray processConditionVector
                                                    resP,
                                                    fiwareCorrelator,
                                                    attrsOrder,
-                                                   blacklist)))
+                                                   blacklist,
+                                                   apiVersion)))
       {
         *notificationDone = true;
       }
@@ -2326,7 +2584,9 @@ BSONArray processConditionVector
   const std::string&               status,
   const std::string&               fiwareCorrelator,
   const std::vector<std::string>&  attrsOrder,
-  bool                             blacklist
+  bool                             blacklist,
+  const bool&                      skipInitialNotification,
+  ApiVersion                       apiVersion
 )
 {
   NotifyConditionVector ncV;
@@ -2352,7 +2612,9 @@ BSONArray processConditionVector
                                          status,
                                          fiwareCorrelator,
                                          attrsOrder,
-                                         blacklist);
+                                         blacklist,
+                                         skipInitialNotification,
+                                         apiVersion);
 
   enV.release();
   ncV.release();
@@ -2525,9 +2787,9 @@ void releaseTriggeredSubscriptions(std::map<std::string, TriggeredSubscription*>
 */
 void fillContextProviders(ContextElementResponse* cer, const ContextRegistrationResponseVector& crrV)
 {
-  for (unsigned int ix = 0; ix < cer->contextElement.contextAttributeVector.size(); ++ix)
+  for (unsigned int ix = 0; ix < cer->entity.attributeVector.size(); ++ix)
   {
-    ContextAttribute* ca = cer->contextElement.contextAttributeVector[ix];
+    ContextAttribute* ca = cer->entity.attributeVector[ix];
 
     if (ca->found)
     {
@@ -2535,22 +2797,24 @@ void fillContextProviders(ContextElementResponse* cer, const ContextRegistration
     }
 
     /* Search for some CPr in crrV */
-    std::string  perEntPa;
-    std::string  perAttrPa;
-    MimeType     perEntPaMimeType  = NOMIMETYPE;
-    MimeType     perAttrPaMimeType = NOMIMETYPE;
+    std::string     perEntPa;
+    std::string     perAttrPa;
+    MimeType        perEntPaMimeType  = NOMIMETYPE;
+    MimeType        perAttrPaMimeType = NOMIMETYPE;
+    ProviderFormat  providerFormat;
 
-    cprLookupByAttribute(cer->contextElement.entityId,
+    cprLookupByAttribute(cer->entity,
                          ca->name,
                          crrV,
                          &perEntPa,
                          &perEntPaMimeType,
                          &perAttrPa,
-                         &perAttrPaMimeType);
+                         &perAttrPaMimeType,
+                         &providerFormat);
 
     /* Looking results after crrV processing */
     ca->providingApplication.set(perAttrPa == "" ? perEntPa : perAttrPa);
-    ca->providingApplication.setMimeType(perAttrPa == "" ? perEntPaMimeType : perAttrPaMimeType);
+    ca->providingApplication.setProviderFormat(providerFormat);
     ca->found = (ca->providingApplication.get() != "");
   }
 }
@@ -2569,9 +2833,9 @@ void fillContextProviders(ContextElementResponse* cer, const ContextRegistration
 */
 bool someContextElementNotFound(const ContextElementResponse& cer)
 {
-  for (unsigned int ix = 0; ix < cer.contextElement.contextAttributeVector.size(); ++ix)
+  for (unsigned int ix = 0; ix < cer.entity.attributeVector.size(); ++ix)
   {
-    if (!cer.contextElement.contextAttributeVector[ix]->found)
+    if (!cer.entity.attributeVector[ix]->found)
     {
       return true;
     }
@@ -2586,18 +2850,19 @@ bool someContextElementNotFound(const ContextElementResponse& cer)
 *
 * cprLookupByAttribute -
 *
-* Search for the CPr, given the entity/attribute as argument. Actually, two CPrs can be returned
+* Search for the CPr, given the entity/attribute as argument. Actually, two CPrs can be returned -
 * the "general" one at entity level or the "specific" one at attribute level
 */
 void cprLookupByAttribute
 (
-  EntityId&                                 en,
+  const Entity&                             en,
   const std::string&                        attrName,
   const ContextRegistrationResponseVector&  crrV,
   std::string*                              perEntPa,
   MimeType*                                 perEntPaMimeType,
   std::string*                              perAttrPa,
-  MimeType*                                 perAttrPaMimeType
+  MimeType*                                 perAttrPaMimeType,
+  ProviderFormat*                           providerFormatP
 )
 {
   *perEntPa  = "";
@@ -2612,7 +2877,17 @@ void cprLookupByAttribute
     {
       EntityId* regEn = crr->contextRegistration.entityIdVector[enIx];
 
-      if (regEn->id != en.id || (regEn->type != en.type && regEn->type != ""))
+      if (regEn->isPatternIsTrue() && regEn->id == ".*")
+      {
+        // By the moment the only supported pattern is .*. In this case matching is
+        // based exclusively in type
+        if (regEn->type != en.type && regEn->type != "")
+        {
+          /* No match (keep searching the CRR) */
+          continue;
+        }
+      }
+      else if (regEn->id != en.id || (regEn->type != en.type && regEn->type != ""))
       {
         /* No match (keep searching the CRR) */
         continue;
@@ -2622,9 +2897,9 @@ void cprLookupByAttribute
       if (crr->contextRegistration.contextRegistrationAttributeVector.size() == 0)
       {
         *perEntPa         = crr->contextRegistration.providingApplication.get();
-        *perEntPaMimeType = crr->contextRegistration.providingApplication.getMimeType();
+        *providerFormatP  =  crr->contextRegistration.providingApplication.getProviderFormat();
 
-        break; /* enIx */
+        break;  /* enIx */
       }
 
       /* Is there a matching entity or the absence of attributes? */
@@ -2633,9 +2908,9 @@ void cprLookupByAttribute
         std::string regAttrName = crr->contextRegistration.contextRegistrationAttributeVector[attrIx]->name;
         if (regAttrName == attrName)
         {
-          /* We cannot "improve" this result keep searching in CRR vector, so we return */
+          /* We cannot "improve" this result by keep searching the CRR vector, so we return */
           *perAttrPa         = crr->contextRegistration.providingApplication.get();
-          *perAttrPaMimeType = crr->contextRegistration.providingApplication.getMimeType();
+          *providerFormatP  =  crr->contextRegistration.providingApplication.getProviderFormat();
 
           return;
         }

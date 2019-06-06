@@ -25,15 +25,15 @@ commands that require root privilege):
 
 * Install the required libraries (except what needs to be taken from source, described in following steps).
 
-        sudo yum install boost-devel libcurl-devel gnutls-devel libgcrypt-devel openssl-devel libuuid-devel
+        sudo yum install boost-devel libcurl-devel gnutls-devel libgcrypt-devel openssl-devel libuuid-devel cyrus-sasl-devel
 
-* Install the Mongo Driver from source. The following procedure corresponds with default installation, if you want to include SASL and SSL support use [this alternative procedure](#building-mongodb-driver-with-sasl-and-ssl-support) instead.
+* Install the Mongo Driver from source.
 
         wget https://github.com/mongodb/mongo-cxx-driver/archive/legacy-1.1.2.tar.gz
         tar xfvz legacy-1.1.2.tar.gz
         cd mongo-cxx-driver-legacy-1.1.2
-        scons                                         # The build/linux2/normal/libmongoclient.a library is generated as outcome
-        sudo scons install --prefix=/usr/local        # This puts .h files in /usr/local/include/mongo and libmongoclient.a in /usr/local/lib
+        scons  --use-sasl-client --ssl                                        # The build/linux2/normal/libmongoclient.a library is generated as outcome
+        sudo scons install --prefix=/usr/local --use-sasl-client --ssl        # This puts .h files in /usr/local/include/mongo and libmongoclient.a in /usr/local/lib
 
 * Install rapidjson from sources:
 
@@ -73,7 +73,7 @@ commands that require root privilege):
 
 * (Optional but highly recommended) run unit test. Firstly, you have to install MongoDB as the unit and functional tests
 rely on mongod running in localhost. Check [the official MongoDB documentation](https://docs.mongodb.com/manual/tutorial/install-mongodb-on-red-hat/)
-for details. Recommended version is 3.4 (although 3.2 should also work fine).
+for details. Recommended version is 3.6 (although 3.2 and 3.4 should also work fine).
 
 * Install the binary. You can use INSTALL_DIR to set the installation prefix path (default is /usr), thus the broker is installed in `$INSTALL_DIR/bin` directory.
 
@@ -127,15 +127,3 @@ You can generate the RPM for the source code (optional):
         make rpm
 
 * The generated RPMs are placed in directory `~/rpmbuild/RPMS/x86_64`.
-
-### Building MongoDB driver with SASL and SSL support
-
-The procedure is as follows:
-
-```
-wget https://github.com/mongodb/mongo-cxx-driver/archive/legacy-1.1.2.tar.gz
-tar xfvz legacy-1.1.2.tar.gz cd mongo-cxx-driver-legacy-1.1.2
-yum install cyrus-sasl-devel
-scons --use-sasl-client --ssl                                   # The build/linux2/normal/libmongoclient.a library is generated as outcome
-sudo scons install --prefix=/usr/local --use-sasl-client --ssl  # This puts .h files in /usr/local/include/mongo and libmongoclient.a in /usr/local/lib
-```

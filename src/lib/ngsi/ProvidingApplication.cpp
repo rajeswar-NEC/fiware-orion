@@ -40,9 +40,9 @@
 */
 ProvidingApplication::ProvidingApplication()
 {
-  /* It is better to have a default constructor than leave mimeType with a random value */
-  string   = "";
-  mimeType = NOMIMETYPE;
+  /* It is better to have a default constructor than to leave mimeType with a random value */
+  string         = "";
+  providerFormat = PfJson;
 }
 
 
@@ -87,11 +87,22 @@ void ProvidingApplication::set(const std::string& value)
 
 /* ****************************************************************************
 *
-* ProvidingApplication::setMimeType -
+* ProvidingApplication::setProviderFormat -
 */
-void ProvidingApplication::setMimeType(const MimeType m)
+void ProvidingApplication::setProviderFormat(const ProviderFormat _providerFormat)
 {
-  mimeType = m;
+  providerFormat = _providerFormat;
+}
+
+
+
+/* ****************************************************************************
+*
+* ProvidingApplication::getProviderFormat -
+*/
+ProviderFormat ProvidingApplication::getProviderFormat(void)
+{
+  return providerFormat;
 }
 
 
@@ -109,40 +120,9 @@ std::string ProvidingApplication::get(void)
 
 /* ****************************************************************************
 *
-* ProvidingApplication::getMimeType -
+* ProvidingApplication::toJsonV1 -
 */
-MimeType ProvidingApplication::getMimeType(void)
-{
-  return mimeType;
-}
-
-
-
-/* ****************************************************************************
-*
-* ProvidingApplication::present -
-*/
-void ProvidingApplication::present(const std::string& indent)
-{
-  if (string != "")
-  {
-    LM_T(LmtPresent, ("%sProvidingApplication: %s\n", 
-		      indent.c_str(), 
-		      string.c_str()));
-  }
-  else
-  {
-    LM_T(LmtPresent, ("%sNo ProvidingApplication\n", indent.c_str()));
-  }
-}
-
-
-
-/* ****************************************************************************
-*
-* ProvidingApplication::render -
-*/
-std::string ProvidingApplication::render(bool comma)
+std::string ProvidingApplication::toJsonV1(bool comma)
 {
   if (string == "")
   {

@@ -42,9 +42,6 @@ The list of available options is the following:
 -   **-ipv6**. Runs broker in IPv6 only mode (by default, the broker
     runs in both IPv4 and IPv6). Cannot be used at the same time
     as -ipv4.
--   **-rush <host:port>**. Use **rush** in *host* and
-    *port*. Default behavior is to *not* use Rush. See section
-    on [using Rush relayer](rush.md).
 -   **-multiservice**. Enables multiservice/multitenant mode (see [multi
     service tenant section](../user/multitenancy.md)).
 -   **-db <db>**. The MongoDB database to use or
@@ -146,14 +143,14 @@ The list of available options is the following:
 -   **-maxConnections**. Maximum number of simultaneous connections. Default value is 1020, for legacy reasons,
     while the lower limit is 1 and there is no upper limit (limited by max file descriptors of the operating system).
 -   **-reqPoolSize**. Size of thread pool for incoming connections. Default value is 0, meaning *no thread pool*.
+-   **-inReqPayloadMaxSize**. Max allowed size for incoming requests payloads, in bytes. Default value is 1MB.
+-   **-outReqMsgMaxSize**. Max allowed total size for request *outgoing message*, in bytes. Default value is 8MB.
 -   **-statCounters**, **-statSemWait**, **-statTiming** and **-statNotifQueue**. Enable statistics
     generation. See [statistics documentation](statistics.md).
 -   **-logSummary**. Log summary period in seconds. Defaults to 0, meaning *Log Summary is off*. Min value: 0. Max value: one month (3600 * 24 * 31 == 2678400 seconds).
     See [logs documentation](logs.md#summary-traces) for more detail.
 -   **-relogAlarms**. To see *every* possible alarm-provoking failure in the log-file, even when an alarm is already active, use this option. See [logs documentation](logs.md#alarms)
     for more detail.
--   **-strictNgsiv1Ids**. To apply to the NGSIv1 API the same restrictions that apply to NGSIv2 for id fields regarding
-    forbidden characters and length limit. See also [this section of the documentation](../user/v1_v2_coexistence.md#checking-id-fields).
 -   **-disableCustomNotifications**. Disabled NGSIv2 custom notifications. In particular:
     * `httpCustom` is interpreted as `http`, i.e. all sub-fields except `url` are ignored
     * No `${...}` macro substitution is performed.
@@ -162,5 +159,4 @@ The list of available options is the following:
     Use this parameter to start the broker without metrics overhead.
 -   **-insecureNotif**. Allow HTTPS notifications to peers which certificate cannot be authenticated with known CA certificates. This is similar
     to the `-k` or `--insecure` parameteres of the curl command.
--   ** -ngsiv1Autocast**. Enables the NGSIv1 autocast mode for numbers, booleans and dates attributes. See
-    [NGSIv1 autocast documentation](../user/ngsiv1autocast.md) for more information.
+

@@ -104,29 +104,9 @@ const std::string Throttling::get(void)
 
 /* ****************************************************************************
 *
-* Throttling::present -
+* Throttling::toJsonV1 -
 */
-void Throttling::present(const std::string& indent)
-{
-  if (string != "")
-  {
-    LM_T(LmtPresent, ("%sThrottling: %s\n", 
-		      indent.c_str(), 
-		      string.c_str()));
-  }
-  else
-  {
-    LM_T(LmtPresent, ("%sNo Throttling\n", indent.c_str()));
-  }
-}
-
-
-
-/* ****************************************************************************
-*
-* Throttling::render -
-*/
-std::string Throttling::render(bool comma)
+std::string Throttling::toJsonV1(bool comma)
 {
   if (string == "")
   {

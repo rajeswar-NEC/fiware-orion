@@ -267,9 +267,25 @@ extern bool mongoLocationCapable(void);
 
 /* ****************************************************************************
 *
+* mongoExpirationCapable -
+*/
+extern bool mongoExpirationCapable(void);
+
+
+
+/* ****************************************************************************
+*
 * ensureLocationIndex -
 */
 extern void ensureLocationIndex(const std::string& tenant);
+
+
+
+/* ****************************************************************************
+*
+* ensureDateExpirationIndex -
+*/
+extern void ensureDateExpirationIndex(const std::string& tenant);
 
 
 
@@ -293,7 +309,7 @@ extern bool includedEntity(EntityId en, const EntityIdVector& entityIdV);
 *
 * includedAttribute -
 */
-extern bool includedAttribute(const ContextRegistrationAttribute& attr, const StringList& attrsV);
+extern bool includedAttribute(const std::string& attrName, const StringList& attrsV);
 
 
 
@@ -314,7 +330,6 @@ extern bool entitiesQuery
 (
   const EntityIdVector&            enV,
   const StringList&                attrL,
-  const StringList&                metadataList,
   const Restriction&               res,
   ContextElementResponseVector*    cerV,
   std::string*                     err,
@@ -411,7 +426,9 @@ extern mongo::BSONArray processConditionVector
   const std::string&                 status,
   const std::string&                 fiwareCorrelator,
   const std::vector<std::string>&    attrsOrder,
-  bool                               blacklist
+  bool                               blacklist,
+  const bool&                        skipInitialNotification,
+  ApiVersion                         apiVersion
 );
 
 
@@ -482,13 +499,22 @@ extern bool someContextElementNotFound(const ContextElementResponse& cer);
 */
 extern void cprLookupByAttribute
 (
-  EntityId&                                en,
+  const Entity&                            en,
   const std::string&                       attrName,
   const ContextRegistrationResponseVector& crrV,
   std::string*                             perEntPa,
   MimeType*                                perEntPaMimeType,
   std::string*                             perAttrPa,
-  MimeType*                                perAttrPaMimeType
+  MimeType*                                perAttrPaMimeType,
+  ProviderFormat*                           providerFormatP
 );
+
+
+/* ****************************************************************************
+*
+* addBuiltins -
+*
+*/
+extern void addBuiltins(ContextElementResponse* cerP);
 
 #endif  // SRC_LIB_MONGOBACKEND_MONGOGLOBAL_H_

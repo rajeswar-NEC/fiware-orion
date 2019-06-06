@@ -49,14 +49,19 @@ badVerbAllNotDelete.cpp
 semStateTreat.cpp
 getMetrics.cpp
 deleteMetrics.cpp
+getRegistration.cpp
+deleteRegistration.cpp
+getRegistrations.cpp
 optionsGetOnly.cpp
 optionsGetPostOnly.cpp
+postRegistration.cpp
 optionsGetDeleteOnly
 optionsAllNotDelete
 optionsGetPutOnly
 optionsGetPutDeleteOnly
 optionsGetDeletePatchOnly
 optionsPostOnly
+serviceRoutinesCommon.cpp
 )
 
 SET (HEADERS
@@ -90,6 +95,11 @@ getMetrics.h
 deleteMetrics.h
 optionsGetOnly.h
 optionsGetPostOnly.h
+getRegistration.h
+deleteRegistration.h
+getRegistrations.h
+postRegistration.h
+serviceRoutinesCommon.h
 )
 
 
